@@ -5,6 +5,8 @@ import nodemailer from "nodemailer";
 config();
 
 const doIt = async () => {
+    console.log("go")
+
   const feedContent = await fetch(
     "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json"
   ).then((response) => response.json());
@@ -74,16 +76,16 @@ const sendErrorEmail = e => {
       });
 }
 
+let intervalId = 0;
+
 const runChron = async () => {
-    let intervalId = 0;
-        intervalId = setInterval(async() => {
             try{
+                console.log("start")
                 await doIt()
             } catch(e){
                 sendErrorEmail(e)
                 clearInterval(intervalId)
             }
-            }, 1000
-        )}
+}
 
-runChron()
+intervalId = setInterval(runChron, 60000)
