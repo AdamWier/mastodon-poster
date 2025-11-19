@@ -9,6 +9,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "masto": "^7.4.0"
-  }
+    "dotenv": "^17.2.3",
+    "masto": "^7.4.0",
+    "nodemailer": "^7.0.10"
+  },
+  "type": "module"
 }

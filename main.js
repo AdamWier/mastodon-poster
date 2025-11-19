@@ -1,19 +1,89 @@
-const path = require('path');
-const fs = require('fs');
+import fs from "fs";
+import { createRestAPIClient } from "masto";
+import { config } from "dotenv";
+import nodemailer from "nodemailer";
+config();
 
 const doIt = async () => {
-    const feedContent = await fetch("https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json").then((response) => response.json());
+  const feedContent = await fetch(
+    "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json"
+  ).then((response) => response.json());
 
-    const data = fs.existsSync('data.json') ? JSON.parse(fs.readFileSync('data.json')) : {}
-    const lastSync = data.lastSync ?? new Date(1762321140000);
+  const data = fs.existsSync("data.json")
+    ? JSON.parse(fs.readFileSync("data.json"))
+    : {};
 
-  let items = feedContent.items.map(item => ({
-    ...item,
-    date_published: new Date(item.date_published)
-  })).filter(({date_published}) => date_published.getTime() > lastSync);
+  const lastSync = data.lastSync
+    ? new Date(data.lastSync)
+    : new Date(new Date("2025-11-17T22:00:00.000Z").getTime() - 1);
 
-  console.log(items, lastSync)
+  let items = feedContent.items
+    .map((item) => ({
+      ...item,
+      date_published: new Date(item.date_published),
+    }))
+    .filter(({ date_published }) => date_published.getTime() > lastSync)
+    .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
 
+  const client = createRestAPIClient({
+    url: "https://mastodon.social",
+    accessToken: process.env.ACCESS_TOKEN,
+  });
+
+  await items.reduce(
+    (promise, item) => promise.then(handleItem(item, client)),
+    Promise.resolve()
+  );
+
+  fs.writeFileSync(
+    "data.json",
+    JSON.stringify({ lastSync: new Date().toUTCString() })
+  );
+};
+
+const handleItem = async (item, client) => {
+  const attachments = await Promise.all(
+    (item.attachments ?? []).map(async ({ url, _alt_text }) => {
+      const file = await (await fetch(url))?.blob();
+      return client.v2.media.create({ file, description: _alt_text });
+    })
+  );
+  const mediaIds = attachments.map(({ id }) => id);
+  client.v1.statuses.create({
+    status: item.content_text,
+    visibility: "public",
+    mediaIds,
+  });
+};
+
+const sendErrorEmail = e => {
+    const transporter = nodemailer.createTransport({
+        host: process.env.EMAIL_HOST,
+        port: 587,
+        secure: false,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASSWORD,
+        },
+      });
+      return transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: process.env.EMAIL_USER,
+        subject: "CHRON ERROR",
+        text: JSON.stringify(e, Object.getOwnPropertyNames(e))
+      });
 }
 
-doIt()
+const runChron = async () => {
+    let intervalId = 0;
+        intervalId = setInterval(async() => {
+            try{
+                await doIt()
+            } catch(e){
+                sendErrorEmail(e)
+                clearInterval(intervalId)
+            }
+            }, 1000
+        )}
+
+runChron()
