@@ -15,16 +15,14 @@ const doIt = async () => {
     ? JSON.parse(fs.readFileSync("data.json"))
     : {};
 
-  const lastSync = data.lastSync
-    ? new Date(data.lastSync)
-    : new Date(new Date("2025-11-17T22:00:00.000Z").getTime() - 1);
+  const syncedPosts = data.syncedPosts ?? [];
 
   let items = feedContent.items
     .map((item) => ({
       ...item,
       date_published: new Date(item.date_published),
     }))
-    .filter(({ date_published }) => date_published.getTime() > lastSync)
+    .filter(({ id }) => !syncedPosts.includes(id))
     .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
 
   const client = createRestAPIClient({
@@ -39,7 +37,7 @@ const doIt = async () => {
 
   fs.writeFileSync(
     "data.json",
-    JSON.stringify({ lastSync: new Date().toUTCString() })
+    JSON.stringify({ syncedPosts: syncedPosts.concat(items.map(({id}) => id ))})
   );
 };
 
