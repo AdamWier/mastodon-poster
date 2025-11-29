@@ -2,7 +2,7 @@ import fs from "fs";
 import { createRestAPIClient } from "masto";
 import { config } from "dotenv";
 import nodemailer from "nodemailer";
-import Micropub from 'micropub-helper';
+import Micropub from "micropub-helper";
 config();
 
 const client = createRestAPIClient({
@@ -17,7 +17,7 @@ const micropub = new Micropub({
 });
 
 const doIt = async () => {
-    console.log("go")
+  console.log("go");
 
   const feedContent = await fetch(
     "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json"
@@ -38,21 +38,27 @@ const doIt = async () => {
     .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
 
   const results = await items.reduce(
-    (promise, item) => promise.then(results => handleItem(item, results)),
+    (promise, item) => promise.then((results) => handleItem(item, results)),
     Promise.resolve([])
   );
 
-  await results.reduce((promise, {uri, netlifyUrl}) => promise.then(async () => {
-    micropub.update(netlifyUrl, {
-      replace: {
-        syndication: [uri]
-      }
-    })
-  }), Promise.resolve())
+  await results.reduce(
+    (promise, { uri, netlifyUrl }) =>
+      promise.then(async () => {
+        micropub.update(netlifyUrl, {
+          replace: {
+            syndication: [uri],
+          },
+        });
+      }),
+    Promise.resolve()
+  );
 
   fs.writeFileSync(
     "data.json",
-    JSON.stringify({ syncedPosts: syncedPosts.concat(items.map(({id}) => id ))})
+    JSON.stringify({
+      syncedPosts: syncedPosts.concat(items.map(({ id }) => id)),
+    })
   );
 };
 
@@ -69,37 +75,37 @@ const handleItem = async (item, results) => {
     visibility: "public",
     mediaIds,
   });
-  return [...results, {...result, netlifyUrl: item.id}]
+  return [...results, { ...result, netlifyUrl: item.id }];
 };
 
-const sendErrorEmail = e => {
-    const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: 587,
-        secure: false,
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD,
-        },
-      });
-      return transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: process.env.EMAIL_USER,
-        subject: "CHRON ERROR",
-        text: JSON.stringify(e, Object.getOwnPropertyNames(e))
-      });
-}
+const sendErrorEmail = (e) => {
+  const transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST,
+    port: 587,
+    secure: false,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD,
+    },
+  });
+  return transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: process.env.EMAIL_USER,
+    subject: "CHRON ERROR",
+    text: JSON.stringify(e, Object.getOwnPropertyNames(e)),
+  });
+};
 
 let intervalId = 0;
 
 const runChron = async () => {
-            try{
-                console.log("start")
-                await doIt()
-            } catch(e){
-                sendErrorEmail(e)
-                clearInterval(intervalId)
-            }
-}
+  try {
+    console.log("start");
+    await doIt();
+  } catch (e) {
+    sendErrorEmail(e);
+    clearInterval(intervalId);
+  }
+};
 
-intervalId = setInterval(runChron, 60000)
+intervalId = setInterval(runChron, 60000);
