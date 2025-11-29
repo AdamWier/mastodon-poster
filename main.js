@@ -2,7 +2,19 @@ import fs from "fs";
 import { createRestAPIClient } from "masto";
 import { config } from "dotenv";
 import nodemailer from "nodemailer";
+import Micropub from 'micropub-helper';
 config();
+
+const client = createRestAPIClient({
+  url: "https://mastodon.social",
+  accessToken: process.env.ACCESS_TOKEN,
+});
+
+const micropub = new Micropub({
+  token: process.env.MICROPUB_TOKEN,
+  clientId: "https://gimme-a-token.5eb.nl/",
+  micropubEndpoint: process.env.MICROPUB_ENDPOINT,
+});
 
 const doIt = async () => {
     console.log("go")
@@ -25,15 +37,18 @@ const doIt = async () => {
     .filter(({ id }) => !syncedPosts.includes(id))
     .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
 
-  const client = createRestAPIClient({
-    url: "https://mastodon.social",
-    accessToken: process.env.ACCESS_TOKEN,
-  });
-
-  await items.reduce(
-    (promise, item) => promise.then(handleItem(item, client)),
-    Promise.resolve()
+  const results = await items.reduce(
+    (promise, item) => promise.then(results => handleItem(item, results)),
+    Promise.resolve([])
   );
+
+  await results.reduce((promise, {uri, netlifyUrl}) => promise.then(async () => {
+    micropub.update(netlifyUrl, {
+      replace: {
+        syndication: [uri]
+      }
+    })
+  }), Promise.resolve())
 
   fs.writeFileSync(
     "data.json",
@@ -41,7 +56,7 @@ const doIt = async () => {
   );
 };
 
-const handleItem = async (item, client) => {
+const handleItem = async (item, results) => {
   const attachments = await Promise.all(
     (item.attachments ?? []).map(async ({ url, _alt_text }) => {
       const file = await (await fetch(url))?.blob();
@@ -49,11 +64,12 @@ const handleItem = async (item, client) => {
     })
   );
   const mediaIds = attachments.map(({ id }) => id);
-  client.v1.statuses.create({
+  const result = await client.v1.statuses.create({
     status: item.content_text,
     visibility: "public",
     mediaIds,
   });
+  return [...results, {...result, netlifyUrl: item.id}]
 };
 
 const sendErrorEmail = e => {
