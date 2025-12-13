@@ -3,7 +3,12 @@ import { createRestAPIClient } from "masto";
 import { config } from "dotenv";
 import nodemailer from "nodemailer";
 import Micropub from "micropub-helper";
-config();
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+config({debug:true, path:__dirname+"/.env"});
+
 
 const client = createRestAPIClient({
   url: "https://mastodon.social",
