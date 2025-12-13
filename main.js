@@ -17,8 +17,6 @@ const micropub = new Micropub({
 });
 
 const doIt = async () => {
-  console.log("go");
-
   const feedContent = await fetch(
     "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json"
   ).then((response) => response.json());
@@ -96,11 +94,8 @@ const sendErrorEmail = (e) => {
   });
 };
 
-let intervalId = 0;
-
-const runChron = async () => {
+const run = async () => {
   try {
-    console.log("start");
     await doIt();
   } catch (e) {
     sendErrorEmail(e);
@@ -108,4 +103,4 @@ const runChron = async () => {
   }
 };
 
-intervalId = setInterval(runChron, 60000);
+run();
