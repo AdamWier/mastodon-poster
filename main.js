@@ -99,7 +99,6 @@ const run = async () => {
     await doIt();
   } catch (e) {
     sendErrorEmail(e);
-    clearInterval(intervalId);
   }
 };
 
