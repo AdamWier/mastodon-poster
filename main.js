@@ -11,7 +11,7 @@ config({debug:true, path:__dirname+"/.env"});
 
 
 const client = createRestAPIClient({
-  url: "https://mastodon.social",
+  url: "https://nantes.social",
   accessToken: process.env.ACCESS_TOKEN,
 });
 
