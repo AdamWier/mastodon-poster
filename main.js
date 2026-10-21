@@ -21,27 +21,11 @@ const micropub = new Micropub({
   micropubEndpoint: process.env.MICROPUB_ENDPOINT,
 });
 
-const doIt = async () => {
-  const feedContent = await fetch(
-    "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json"
-  ).then((response) => response.json());
+const netlifyJsonFeed = "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json";
 
-  const data = fs.existsSync("data.json")
-    ? JSON.parse(fs.readFileSync("data.json"))
-    : {};
-
-  const syncedPosts = data.syncedPosts ?? [];
-
-  let items = feedContent.items
-    .map((item) => ({
-      ...item,
-      date_published: new Date(item.date_published),
-    }))
-    .filter(({ id }) => !syncedPosts.includes(id))
-    .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
-
+const write = async (items) => {
   const results = await items.reduce(
-    (promise, item) => promise.then((results) => handleItem(item, results)),
+    (promise, item) => promise.then((results) => postToMastodon(item, results)),
     Promise.resolve([])
   );
 
@@ -56,16 +40,44 @@ const doIt = async () => {
       }),
     Promise.resolve()
   );
+}
+
+const doIt = async () => {
+  console.log('Starting sync')
+  const feedItems = (await fetch(netlifyJsonFeed).then((response) => response.json())).items;
+
+  const data = fs.existsSync("data.json")
+    ? JSON.parse(fs.readFileSync("data.json"))
+    : {};
+
+  const syncedPosts = data.syncedPosts ?? [];
+
+  const unsyncedItems = feedItems
+    .filter(({ id }) => !syncedPosts.includes(id))
+    .map((item) => ({
+      ...item,
+      date_published: new Date(item.date_published),
+    }))
+    .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
+
+  console.log(`Found ${unsyncedItems.length} items to sync`)
+
+  const isDryRun = process.argv.slice(2).includes('--dry-run');
+  !isDryRun && await write(unsyncedItems);
 
   fs.writeFileSync(
     "data.json",
     JSON.stringify({
-      syncedPosts: syncedPosts.concat(items.map(({ id }) => id)),
+      syncedPosts: syncedPosts.concat(unsyncedItems.map(({ id }) => id)),
     })
   );
+
+  console.log('Wrote information to data.json')
 };
 
-const handleItem = async (item, results) => {
+const postToMastodon = async (item, results) => {
+  console.log(`Posting item #${results.length + 1} (${item})`)
+
   const attachments = await Promise.all(
     (item.attachments ?? []).map(async ({ url, _alt_text }) => {
       const file = await (await fetch(url))?.blob();
@@ -78,10 +90,12 @@ const handleItem = async (item, results) => {
     visibility: "public",
     mediaIds,
   });
+
+  console.log(`Successfully posted item #${results.length + 1} at ${result.uri}`)
   return [...results, { ...result, netlifyUrl: item.id }];
 };
 
-const sendErrorEmail = (e) => {
+const sendErrorEmail = async (e) => {
   const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: 587,
@@ -103,7 +117,9 @@ const run = async () => {
   try {
     await doIt();
   } catch (e) {
-    sendErrorEmail(e);
+    console.log(e)
+    const isDryRun = process.argv.slice(2).includes('--dry-run');
+    !isDryRun && await sendErrorEmail(e);
   }
 };
 
