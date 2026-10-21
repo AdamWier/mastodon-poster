@@ -21,62 +21,14 @@ const micropub = new Micropub({
   micropubEndpoint: process.env.MICROPUB_ENDPOINT,
 });
 
-const netlifyJsonFeed = "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json";
+const NETLIFY_JSON_FEED = "https://mycabinetofcuriosities.com/feed/syndicate-mastodon-json.json";
 
-const write = async (items) => {
-  const results = await items.reduce(
-    (promise, item) => promise.then((results) => postToMastodon(item, results)),
-    Promise.resolve([])
-  );
+const DATA_FILE = "data.json";
 
-  await results.reduce(
-    (promise, { uri, netlifyUrl }) =>
-      promise.then(async () => {
-        micropub.update(netlifyUrl, {
-          replace: {
-            syndication: [uri],
-          },
-        });
-      }),
-    Promise.resolve()
-  );
-}
-
-const doIt = async () => {
-  console.log('Starting sync')
-  const feedItems = (await fetch(netlifyJsonFeed).then((response) => response.json())).items;
-
-  const data = fs.existsSync("data.json")
-    ? JSON.parse(fs.readFileSync("data.json"))
-    : {};
-
-  const syncedPosts = data.syncedPosts ?? [];
-
-  const unsyncedItems = feedItems
-    .filter(({ id }) => !syncedPosts.includes(id))
-    .map((item) => ({
-      ...item,
-      date_published: new Date(item.date_published),
-    }))
-    .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
-
-  console.log(`Found ${unsyncedItems.length} items to sync`)
-
-  const isDryRun = process.argv.slice(2).includes('--dry-run');
-  !isDryRun && await write(unsyncedItems);
-
-  fs.writeFileSync(
-    "data.json",
-    JSON.stringify({
-      syncedPosts: syncedPosts.concat(unsyncedItems.map(({ id }) => id)),
-    })
-  );
-
-  console.log('Wrote information to data.json')
-};
+const ERROR_FILE = "errors.json"
 
 const postToMastodon = async (item, results) => {
-  console.log(`Posting item #${results.length + 1} (${item})`)
+  console.log(`Posting item #${results.length + 1} (${item.id})`)
 
   const attachments = await Promise.all(
     (item.attachments ?? []).map(async ({ url, _alt_text }) => {
@@ -95,6 +47,66 @@ const postToMastodon = async (item, results) => {
   return [...results, { ...result, netlifyUrl: item.id }];
 };
 
+const write = async (items) => {
+  const results = await items.reduce(
+    (promise, item) => promise.then((results) => postToMastodon(item, results).catch(e => {throw ({item, e})})),
+    Promise.resolve([])
+  );
+
+  await results.reduce(
+    (promise, { uri, netlifyUrl }) =>
+      promise.then(async () => {
+        micropub.update(netlifyUrl, {
+          replace: {
+            syndication: [uri],
+          },
+        });
+      }).catch(e => {throw ({e, uri})}),
+    Promise.resolve()
+  );
+}
+
+const doIt = async () => {
+  console.log('Starting sync')
+  const feedItems = (await fetch(NETLIFY_JSON_FEED).then((response) => response.json())).items;
+
+  const data = fs.existsSync(DATA_FILE)
+    ? JSON.parse(fs.readFileSync(DATA_FILE))
+    : {};
+
+  const syncedPosts = data.syncedPosts ?? [];
+
+  const errors = fs.existsSync("errors.json")
+    ? JSON.parse(fs.readFileSync("errors.json"))
+    : [];
+
+  const alreadyProcessedPosts = [...syncedPosts, ...errors]
+
+  const unsyncedItems = feedItems
+    .filter(({ id }) => !alreadyProcessedPosts.includes(id))
+    .map((item) => ({
+      ...item,
+      date_published: new Date(item.date_published),
+    }))
+    .sort((a, b) => a.date_published.getTime() - b.date_published.getTime());
+
+  console.log(`Found ${unsyncedItems.length} items to sync`)
+
+  if(unsyncedItems.length === 0) return;
+
+  const isDryRun = process.argv.slice(2).includes('--dry-run');
+  !isDryRun && await write(unsyncedItems);
+
+  fs.writeFileSync(
+    DATA_FILE,
+    JSON.stringify({
+      syncedPosts: syncedPosts.concat(unsyncedItems.map(({ id }) => id)),
+    })
+  );
+
+  console.log('Wrote information to data.json')
+};
+
 const sendErrorEmail = async (e) => {
   const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
@@ -109,17 +121,28 @@ const sendErrorEmail = async (e) => {
     from: process.env.EMAIL_USER,
     to: process.env.EMAIL_USER,
     subject: "CHRON ERROR",
-    text: JSON.stringify(e, Object.getOwnPropertyNames(e)),
+    text: JSON.stringify(e.item) + '\n\n' + JSON.stringify(e.e, Object.getOwnPropertyNames(e.e)),
   });
 };
+
+const writeErrorFile = (item) => {
+    const errors = fs.existsSync(ERROR_FILE)
+      ? JSON.parse(fs.readFileSync(ERROR_FILE))
+      : [];
+
+    fs.writeFileSync(
+      ERROR_FILE,
+      JSON.stringify([...errors, item.id])
+  );
+}
 
 const run = async () => {
   try {
     await doIt();
   } catch (e) {
-    console.log(e)
+    console.error(e)
     const isDryRun = process.argv.slice(2).includes('--dry-run');
-    !isDryRun && await sendErrorEmail(e);
+    !isDryRun && await sendErrorEmail(e) && writeErrorFile(e.item);
   }
 };
 
