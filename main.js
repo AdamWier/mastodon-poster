@@ -8,12 +8,15 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 config({debug:true, path:__dirname+"/.env"});
-
+import generator from "megalodon";
+import { default as axios } from "axios";
 
 const client = createRestAPIClient({
   url: "https://nantes.social",
   accessToken: process.env.ACCESS_TOKEN,
 });
+
+const pleromaClient = generator('pleroma', 'https://jam.xwx.moe', process.env.PLEROMA_ACCESS_TOKEN);
 
 const micropub = new Micropub({
   token: process.env.MICROPUB_TOKEN,
@@ -47,9 +50,24 @@ const postToMastodon = async (item, results) => {
   return [...results, { ...result, netlifyUrl: item.id }];
 };
 
+const postToPleorama = async (item, results) => {
+  console.log(`Posting item #${results.length + 1} (${item.id}) to Pleroma`)
+
+  const attachments = await Promise.all(
+    (item.attachments ?? []).map(async ({ url, _alt_text }) => {
+      const response = await axios.get(url, {responseType: 'stream'})
+      return pleromaClient.uploadMedia(response.data, {description: _alt_text });
+    })
+  );
+  const mediaIds = attachments.map(({ data }) => data.id);
+
+  const result = (await pleromaClient.postStatus(item.content_text, {media_ids: mediaIds})).data;
+  return [...results, { ...result, netlifyUrl: item.id }];
+}
+
 const write = async (items) => {
   const results = await items.reduce(
-    (promise, item) => promise.then((results) => postToMastodon(item, results).catch(e => {throw ({item, e})})),
+    (promise, item) => promise.then((results) => item.content_text.includes('#lang_eo') ? postToPleorama(item, results).catch(e => {throw ({item, e})}) : postToMastodon(item, results).catch(e => {throw ({item, e})})),
     Promise.resolve([])
   );
 
