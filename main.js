@@ -110,6 +110,17 @@ const write = async (items) => {
 
 const doIt = async () => {
   console.log("Starting sync");
+
+  const errors = fs.existsSync("errors.json")
+    ? JSON.parse(fs.readFileSync("errors.json"))
+    : [];
+
+  const hasGeneralError = errors.findIndex(x => !x) != -1;
+  if(hasGeneralError) {
+    console.log('Stopped because of general error. Probably unable to read JSON')
+    return
+  };
+
   const feedItems = (
     await fetch(NETLIFY_JSON_FEED).then((response) => response.json())
   ).items;
@@ -119,10 +130,6 @@ const doIt = async () => {
     : {};
 
   const syncedPosts = data.syncedPosts ?? [];
-
-  const errors = fs.existsSync("errors.json")
-    ? JSON.parse(fs.readFileSync("errors.json"))
-    : [];
 
   const alreadyProcessedPosts = [...syncedPosts, ...errors];
 
@@ -161,6 +168,8 @@ const sendErrorEmail = async (e) => {
       pass: process.env.EMAIL_PASSWORD,
     },
   });
+  const propertyNames = typeof e.e === 'object' ? Object.getOwnPropertyNames(e.e) : null;
+
   return transporter.sendMail({
     from: process.env.EMAIL_USER,
     to: process.env.EMAIL_USER,
@@ -168,7 +177,7 @@ const sendErrorEmail = async (e) => {
     text:
       JSON.stringify(e.item) +
       "\n\n" +
-      JSON.stringify(e.e, Object.getOwnPropertyNames(e.e)),
+      JSON.stringify(e.e, propertyNames),
   });
 };
 
@@ -177,7 +186,7 @@ const writeErrorFile = (item) => {
     ? JSON.parse(fs.readFileSync(ERROR_FILE))
     : [];
 
-  fs.writeFileSync(ERROR_FILE, JSON.stringify([...errors, item.id]));
+  fs.writeFileSync(ERROR_FILE, JSON.stringify([...errors, item?.id]));
 };
 
 const run = async () => {
