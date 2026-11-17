@@ -115,11 +115,11 @@ const doIt = async () => {
     ? JSON.parse(fs.readFileSync("errors.json"))
     : [];
 
-  const hasGeneralError = errors.findIndex(x => !x) != -1;
-  if(hasGeneralError) {
-    console.log('Stopped because of general error. Probably unable to read JSON')
-    return
-  };
+  // const hasGeneralError = errors.findIndex(x => !x) != -1;
+  // if(hasGeneralError) {
+  //   console.log('Stopped because of general error. Probably unable to read JSON')
+  //   return
+  // };
 
   const feedItems = (
     await fetch(NETLIFY_JSON_FEED).then((response) => response.json())
